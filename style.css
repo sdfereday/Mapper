@@ -1,0 +1,19 @@
+span {
+    display: block;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 16px;
+    height: 16px;
+    text-align: center;
+  }
+
+  .end {
+    border: 1px solid red;
+  }
+
+  button {
+    position: relative;
+    z-index: 99999;
+    float: right;
+  }
