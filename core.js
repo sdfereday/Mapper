@@ -11,7 +11,7 @@
 // Nah. Find a better way.
 const mapDetails = {
   w: 18,
-  h: 18,
+  h: 1024,
   emptyValue: 0,
   wallValue: 1,
   generations: 4
@@ -72,16 +72,31 @@ const getAdjacentWalls = (x, y, scopeX, scopeY, w, h, cells) => {
 
 }
 
-const createBlankMap = (h, w, assignValue) => {
+const createMap = (h, w, assignRandom) => {
 
   // height and width flipped for quadrant correction
   const map = [];
+  const steps = w * h;
 
-  for (let column = 0, row = 0; row <= h - 1; row++) {
-    map.push([]);
-    for (column = 0; column <= w - 1; column++) {
-      map[row].push(assignValue);
+  let col = 0;
+  let row = 0;
+
+  for(i = 0; i < steps; i++) {
+
+    // New line and reset col increment
+    if(i % h === 0) { // Or if it's strange, try using height
+      row += 1;
+      col = 0;
+    } else {
+      col += 1;
     }
+
+    map.push({
+      x: col,
+      y: row - 1,
+      value: assignRandom()
+    });
+
   }
 
   return map;
@@ -125,8 +140,8 @@ const getCell = (x, y, cells) => {
 	return cells.find(cell => cell.x === x && cell.y === y);
 }
 
-const setCellValue = (cell, v) => {
-  // return new cell?
+const containsCell = (arr, cell) => {
+  return arr.find(c => c.x === cell.x && c.y === cell.y);
 }
 
 // General utils
@@ -138,43 +153,45 @@ const firstOrDefault = (prop, key, def) => {
   return prop ? prop[key] : def;
 }
 
+// Random algorithm
+const randAlg = () => {
+  return (Math.floor(Math.random() * (101 - 1)) + 1) < 40 ? 1 : 0;
+}
+
 // Building
 const build = () => {
 
   // w, h, value (would use const but, this means we can't rebuild, will find a nicer way later)
   // Could actually optimise this even further by just doing it all in one, and, not using two dimensionals. TODO.
-  let blankMap = createBlankMap(mapDetails.w, mapDetails.h, mapDetails.emptyValue);
-  let protoMap = flatten(blankMap.map((rowItems, row) => {
+  const protoMap = createMap(mapDetails.w, mapDetails.h, randAlg);
 
-    return rowItems.map((colValue, col) => {
-      // Random algorithm - Can change this to be more... well, interesting.
-      return {
-        x: row,
-        y: col,
-        value: (Math.floor(Math.random() * (101 - 1)) + 1) < 40 ? 1 : 0
-      }
-    });
+  // This is as slow as hell due to the iteration count. We call an iteration over 18k + items
+  // 5 times. So that's at lesat 90k iterations on this loop alone. Optimization is key here, so there
+  // should be something place that only checks
+  const builtMap = iterateMapCells(protoMap, mapDetails.generations, (value, cell, cells) => {
 
-  }));
-
-  let builtMap = iterateMapCells(protoMap, mapDetails.generations, (value, cell, cells) => {
+    // return {
+    //   x: cell.x,
+    //   y: cell.y,
+    //   value: applyLogic(
+    //     getAdjacentWalls(cell.x, cell.y, 1, 1, mapDetails.h, mapDetails.w, cells),
+    //     value
+    //   ),
+    //   // Questionable... this is almost mutating things. But it's clear enough what's going on.
+    //   hasGroup: false
+    // }
 
     return {
       x: cell.x,
       y: cell.y,
       value: applyLogic(
-        getAdjacentWalls(cell.x, cell.y, 1, 1, 18, 18, cells),
+        getAdjacentWalls(cell.x, cell.y, 1, 1, mapDetails.h, mapDetails.w, cells),
         value
       ),
-      // Questionable... this is almost mutating things. But it's clear enough what's going on.
       hasGroup: false
     }
 
   });
-
-  /// Flood fill
-  let tested = [];
-  let groupIndex = 0;
 
   const detectNeighbours = (cell, idx, group) => {
 
@@ -205,19 +222,19 @@ const build = () => {
     if(score > 0) {
 
       if(firstOrDefault(above, 'value', -1) === 0) {
-      	detectNeighbours(above, idx, group);
+      	//detectNeighbours(above, idx, group);
       }
 
       if(firstOrDefault(right, 'value', -1) === 0) {
-      	detectNeighbours(right, idx, group);
+      	//detectNeighbours(right, idx, group);
       }
 
       if(firstOrDefault(below, 'value', -1) === 0) {
-      	detectNeighbours(below, idx, group);
+      	//detectNeighbours(below, idx, group);
       }
 
       if(firstOrDefault(left, 'value', -1) === 0) {
-      	detectNeighbours(left, idx, group);
+      	//detectNeighbours(left, idx, group);
       }
 
     }
@@ -229,39 +246,48 @@ const build = () => {
   }
 
   // Use the cell mapper here
-  const groupedCells = mapCells(builtMap, ((value, cell) => {
+  let groupIndex = 0;
+  let groups = [];
+  // const groupedCells = mapCells(builtMap, ((value, cell) => {
 
-      if(value === 0 && !cell.hasGroup) {
+  //     // 1024 is the benchmark test. You've ot 18,432 cells to iterate over... you're going to call
+  //     // recursion on all of those. That's not going to be performant at all. So another solution may well be required.
+  //     // if(value === 0 && !containsCell(groups, cell)) {
 
-          let group = detectNeighbours(cell, groupIndex, []);
-          groupIndex += 1;
+  //     //     let group = detectNeighbours(cell, groupIndex, groups);
+  //     //     groupIndex += 1;
 
-          return {
-            groupIndex,
-            group
-          };
+  //     //     // return {
+  //     //     //   groupIndex,
+  //     //     //   group
+  //     //     // };
 
-      }
+  //     // }
 
-    })
-  ).filter(x => x);
+  //     // A suggestion might actually to perform a zig-zag. Although that might fall apart when you try to fill in those
+  //     // tiny inlets of one unit only. Might even be better to just test cardinal directions
+
+  //     return null;
+
+  //   })
+  // ).filter(x => x);
 
   console.clear();
   console.log("===================================>");
-  console.log("Generated!");
+  console.log("Generated!", builtMap.length);
   console.warn("Boundaries of map were breached. Did you mean to add a border?");
   // Return only groups that are smallest, we assume that these are minor pockets.
   // Use const later
-  let isolated = groupedCells.length > 1 ? [].concat(groupedCells).sort((a, b) => a.length - b.length) : [];
+  // let isolated = groupedCells.length > 1 ? [].concat(groupedCells).sort((a, b) => a.length - b.length) : [];
 
-  if(isolated.length > 0) {
-    console.log("Detected isolated caverns:");
-    console.log(isolated);
+  // if(isolated.length > 0) {
+  //   console.log("Detected isolated caverns:");
+  //   console.log(isolated);
 
-    // Draw a bloody path between each. Find the largest room, then draw a path to the middle of it.
-    // ... This would make much better use of space and make the map more interesting.
+  //   // Draw a bloody path between each. Find the largest room, then draw a path to the middle of it.
+  //   // ... This would make much better use of space and make the map more interesting.
 
-  }
+  // }
 
   // ...
   // By the way, if you wanted to seed stuff, just save the random value of the algorithm. Easy!
